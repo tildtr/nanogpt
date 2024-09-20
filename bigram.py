@@ -115,9 +115,9 @@ class FeedForward(nn.Module):
     def __init__(self, n_embd):
         super().__init__()
         self.net = nn.Sequential(
-            nn.Linear(n_embd, n_embd),
+            nn.Linear(n_embd, 4 * n_embd),
             nn.ReLU(),
-            nn.Linear(n_embd, n_embd), # projection layer going back into the residual pathway
+            nn.Linear(4 * n_embd, n_embd), # projection layer going back into the residual pathway, multiply by 4 to make the "side path" more experessive
         )
 
     def forward(self, x):
@@ -132,10 +132,12 @@ class Block(nn.Module):
         head_size = n_embd // n_head
         self.sa = MultiHeadAttention(n_head, head_size) # self-attention block
         self.ffwd = FeedForward(n_embd) # feed-forward block
+        self.ln1 = nn.LayerNorm(n_embd) # layer normalization
+        self.ln2 = nn.LayerNorm(n_embd) # layer normalization
 
     def forward(self, x):
-        x = x + self.sa(x) # add "residual connection" to deal with the deepth of the NN
-        x = x + self.ffwd(x) # add "residual connection" to deal with the deepth of the NN
+        x = x + self.sa(self.ln1(x)) # add "residual connection" to deal with the deepth of the NN, layernorm before forwarding
+        x = x + self.ffwd(self.ln2(x)) # add "residual connection" to deal with the deepth of the NN
         return x
 
 # super simple bigram model
@@ -151,9 +153,10 @@ class BigramLanguageModel(nn.Module):
         self.token_embedding_table = nn.Embedding(vocab_size, n_embd)
         self.position_embedding_table = nn.Embedding(block_size, n_embd) # get own embedding vector for position
         self.blocks = nn.Sequential(
-            Block(n_embd, block_size = 4),
-            Block(n_embd, block_size = 4),
-            Block(n_embd, block_size = 4),
+            Block(n_embd, n_head = 4),
+            Block(n_embd, n_head = 4),
+            Block(n_embd, n_head = 4),
+            nn.LayerNorm(n_embd),
         ) # block_size needs to be 4 so that it works witht the 32 dimensions of n_embd (batch size)
         #self.sa_heads = MultiHeadAttention(4, n_embd // 4) # i.e. 4 heads, each with n_embd // 4 dimensions (here 8 because n_embd is 32)
         #self.ffwd = FeedForward(n_embd)
