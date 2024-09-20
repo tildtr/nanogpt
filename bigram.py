@@ -66,7 +66,7 @@ def estimate_loss():
 
 # self attention block
 class Head(nn.Module):
-    # one head of self-attention
+    """ one head of self-attention """
 
     def __init__(self, head_size):
         super().__init__()
@@ -92,6 +92,33 @@ class Head(nn.Module):
         out = wei @ v # (B, T, T) @ (B, T, C) -> (B, T, C)
 
         return out
+    
+class MultiHeadAttention(nn.Module):
+    """ Implement multiple heads of attention in parallel """
+
+    def __init__(self, num_heads, head_size):
+        super().__init__()
+        self.heads = nn.ModuleList([Head(head_size) for _ in range(num_heads)]) # simply create multiple heads as defined
+
+    def forward(self, x): 
+        # apply each head to the input and concatenate the results over the channel dimension 
+        return torch.cat([h(x) for h in self.heads], dim=-1)
+    
+class FeedForward(nn.Module):
+    """ A simple linear layer followed by a non-linearity"""
+    # this is on the per token level
+    # tokens gather data and than "start thinking" on that data
+
+    def __init__(self, n_embd):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(n_embd, n_embd),
+            nn.ReLU(),
+        )
+
+    def forward(self, x):
+        return self.net(x)
+
 
 # super simple bigram model
 class BigramLanguageModel(nn.Module):
@@ -105,7 +132,8 @@ class BigramLanguageModel(nn.Module):
         # n_embd is number of embedding dimensions
         self.token_embedding_table = nn.Embedding(vocab_size, n_embd)
         self.position_embedding_table = nn.Embedding(block_size, n_embd) # get own embedding vector for position
-        self.sa_head = Head(n_embd) # self attention head
+        self.sa_heads = MultiHeadAttention(4, n_embd // 4) # i.e. 4 heads, each with n_embd // 4 dimensions (here 8 because n_embd is 32)
+        self.ffwd = FeedForward(n_embd)
         self.lm_head = nn.Linear(n_embd, vocab_size)
 
     def forward(self, idx, targets=None):
@@ -119,7 +147,8 @@ class BigramLanguageModel(nn.Module):
         tok_emb = self.token_embedding_table(idx) # [batch_size, block_size, vocab_size] or (B, T, C)
         pos_emb = self.position_embedding_table(torch.arange(T, device=device)) # (T, C) - ints from 0 to T-1
         x = tok_emb + pos_emb # (B, T, C) -> now holds not only the token identities but also the positions at which they occur - currently useless as we have bigram model (will be necessary for self-attention block)
-        x = self.sa_head(x) # (B, T, C) - self-attention block -> apply one self-attention head
+        x = self.sa_heads(x) # (B, T, C) - self-attention block -> apply one self-attention head
+        x = self.ffwd(x) # (B, T, C) - feed-forward block
         logits = self.lm_head(x) # [batch_size, block_size, vocab_size] or (B, T, vocab_size)
 
         if targets is None:
